@@ -300,78 +300,9 @@ iptables -A INPUT -s 10.10.99.0/24 -j ACCEPT
 
 ---
 
-## 7. Focus GLPI — Architecture Helpdesk
+## 7. Services Secondaires
 
-### 7.1 Workflow de ticketing
-
-GLPI implémente un système de ticketing professionnel avec classification par **niveau d'intervention (N1/N2/N3)** :
-
-![Texte alternatif](Logigramme.png)
-
-**Niveaux d'intervention :**
-- **N1** — Support de base (réinitialisation MDP, création compte, demande d'info)
-- **N2** — Support technique (problème matériel, réseau, config système)
-- **N3** — Expertise (bug critique, sécurité, développement, architecture)
-
-### 7.2 Catégories de tickets GLPI
-
-| Catégorie | Exemples | Niveau typique |
-|:---|:---|:---|
-| **Problème réseau** | Pas de connexion WiFi, IP incorrecte, VLAN bloqué | N2 |
-| **Problème login** | Impossible de se connecter, MDP oublié | N1 |
-| **Demande d'installation** | Installer un logiciel, créer un compte | N1 |
-| **Problème matériel** | PC ne démarre pas, écran cassé | N2 |
-| **Demande évolution** | Nouvelle fonctionnalité, modification config | N3 |
-| **Sécurité** | Faille détectée, accès non autorisé | N3 |
-
-### 7.3 Cycle de vie d'un ticket
-
-**États GLPI :**
-1. **Nouveau** — Ticket créé, en attente d'assignation
-2. **Attribué** — Ticket assigné à un technicien
-3. **En cours** — Intervention en cours
-4. **En attente** — Bloqué (en attente utilisateur ou ressource externe)
-5. **Résolu** — Solution appliquée, en attente validation utilisateur
-6. **Clos** — Ticket validé et fermé définitivement
-
-### 7.4 Notifications GLPI
-
-**Emails automatiques envoyés lors de :**
-- Création d'un ticket → utilisateur + techniciens N1
-- Assignation à un technicien → technicien concerné
-- Ajout d'un suivi → utilisateur + technicien assigné
-- Résolution → utilisateur (demande validation)
-- Clôture → utilisateur (confirmation finale)
-
-**Configuration SMTP :** GLPI utilise un serveur SMTP interne ou externe pour l'envoi des notifications.
-
-### 7.5 Interfaces GLPI
-
-**Interface utilisateur (Self-Service) :**
-- Créer un ticket
-- Suivre ses tickets
-- Ajouter des informations complémentaires
-- Valider la résolution
-
-**Interface technicien :**
-- Vue globale des tickets (dashboard)
-- Assignation / prise en charge
-- Ajout de suivis techniques
-- Résolution et clôture
-- Statistiques (tickets par catégorie, temps de résolution moyen)
-
-**Interface admin :**
-- Configuration des catégories
-- Gestion des profils utilisateurs
-- Paramétrage LDAP
-- Gestion des notifications
-- Extraction de rapports
-
----
-
-## 8. Services Secondaires
-
-### 8.1 Nextcloud (Cloud interne)
+### 7.1 Nextcloud (Cloud interne)
 
 **Rôle :** Stockage et collaboration de fichiers pour enseignants et étudiants.
 
@@ -388,7 +319,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - Enseignants : 50 Go
 - Admin : Illimité
 
-### 8.2 Outline (Wiki interne)
+### 7.2 Outline (Wiki interne)
 
 **Rôle :** Documentation technique centralisée.
 
@@ -405,7 +336,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - Enseignants → Lecture/Écriture
 - Étudiants → Lecture seule
 
-### 8.3 LGP Stack (Monitoring)
+### 7.3 LGP Stack (Monitoring)
 
 **Rôle :** Supervision de l'infrastructure et des services.
 
@@ -427,7 +358,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - Performances réseau (SNMP Cisco)
 - Logs applicatifs (Loki)
 
-### 8.4 Traefik (Reverse Proxy)
+### 7.4 Traefik (Reverse Proxy)
 
 **Rôle :** Point d'entrée unique pour tous les services en HTTPS.
 
@@ -447,9 +378,9 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 
 ---
 
-## 9. Plan de Tests
+## 8. Plan de Tests
 
-### 9.1 Tests accès HTTPS
+### 8.1 Tests accès HTTPS
 
 - [ ] Accès https://glpi.iris.a3n.fr:4433 depuis VLAN 20
 - [ ] Accès https://cloud.iris.a3n.fr:4433 depuis VLAN 30
@@ -458,7 +389,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - [ ] Vérification certificat SSL accepté par les postes (GPO AD)
 - [ ] Redirection HTTP → HTTPS automatique
 
-### 9.2 Tests authentification LDAP
+### 8.2 Tests authentification LDAP
 
 - [ ] Login GLPI avec compte LDAP (groupe Étudiants) → rôle Utilisateur
 - [ ] Login GLPI avec compte LDAP (groupe Enseignants) → rôle Technicien
@@ -467,14 +398,14 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - [ ] Login Outline avec compte LDAP → droits lecture/écriture selon groupe
 - [ ] Login Grafana avec compte LDAP → rôle Viewer/Éditeur/Admin selon groupe
 
-### 9.3 Tests restrictions réseau
+### 8.3 Tests restrictions réseau
 
 - [ ] Accès direct au port interne GLPI depuis VLAN 20 → **bloqué**
 - [ ] Accès direct au port interne Grafana depuis VLAN 30 → **bloqué**
 - [ ] Accès HTTPS (4433) depuis VLAN 20/30 → **autorisé**
 - [ ] Accès complet depuis VLAN 99 (admin) → **autorisé**
 
-### 9.4 Tests workflow GLPI
+### 8.4 Tests workflow GLPI
 
 - [ ] Création ticket par utilisateur (interface self-service)
 - [ ] Notification email reçue (utilisateur + techniciens)
@@ -485,7 +416,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 - [ ] Clôture ticket
 - [ ] Statistiques visibles dans dashboard admin
 
-### 9.5 Tests services secondaires
+### 8.5 Tests services secondaires
 
 - [ ] Upload fichier dans Nextcloud → téléchargement OK
 - [ ] Création page wiki dans Outline → édition collaborative
@@ -494,7 +425,7 @@ GLPI implémente un système de ticketing professionnel avec classification par 
 
 ---
 
-## 10. Conclusion
+## 9. Conclusion
 
 Cette architecture répond aux exigences de l'appel d'offre RP-03 en plaçant **GLPI (helpdesk)** au centre du dispositif, complété par une suite de services collaboratifs (Nextcloud, Outline, Monitoring).
 
