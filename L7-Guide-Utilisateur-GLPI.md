@@ -29,8 +29,6 @@ Le traitement des tickets suit une logique **ITIL** : qualification, priorisatio
 ### Identifiants
 
 **Utilisez votre compte LDAP habituel :**
-- **Identifiant :** Votre login Windows (ex : `j.dupont`)
-- **Mot de passe :** Votre mot de passe Windows
 
 **Pas de nouveau compte à créer !** Si vous pouvez vous connecter à votre PC, vous pouvez vous connecter à GLPI.
 
