@@ -1,12 +1,15 @@
+<<<<<<< HEAD
 # Conception, sécurisation et mise en place d'outils open source
 **Projet :** Conception, sécurisation et mise en place d'outils open source  
 **Type :** Réalisation professionnelle  
+=======
+# Dossier de Réalisation Professionnelle GLPI (Version structurée)
+**Projet :** Déploiement d'outils open source pour CFA IRIS Nice  
+**Réalisation n° :** 3  
+>>>>>>> 90e857c675e65b8f06c4122978ab07a8511f4abb
 **Auteur :** Louka Lavenir  
 **Période de réalisation :** 24/11/2025 au 28/11/2025  
 **Lieu :** Mediaschool — IRIS Nice  
-**Modalité :** Seul  
-**Date de rédaction :** 24 avril 2026
-
 ---
 
 ## INTRODUCTION
