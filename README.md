@@ -1,6 +1,6 @@
-# L10 — Dossier de Réalisation Professionnelle GLPI (Version structurée)
-**Projet :** RP-03 — Déploiement d'outils open source pour CFA IRIS Nice  
-**Réalisation n° :** 3  
+# Conception, sécurisation et mise en place d'outils open source
+**Projet :** Conception, sécurisation et mise en place d'outils open source  
+**Type :** Réalisation professionnelle  
 **Auteur :** Louka Lavenir  
 **Période de réalisation :** 24/11/2025 au 28/11/2025  
 **Lieu :** Mediaschool — IRIS Nice  
@@ -11,11 +11,11 @@
 
 ## INTRODUCTION
 
-Dans le cadre du RP-03, l’objectif principal est de concevoir et déployer un service de ticketing professionnel pour centraliser les demandes d’assistance informatique de l’école IRIS Nice.  
+L’objectif est de concevoir et déployer une plateforme de services open source orientée exploitation réelle, avec **GLPI** comme service desk principal.
 
-La solution retenue est **GLPI**, déployée sur infrastructure Linux conteneurisée. Le service est intégré à l’écosystème existant (Traefik, Active Directory, supervision), avec une logique d’exploitation réaliste de type service desk.
+La solution est intégrée à une infrastructure Linux conteneurisée, avec publication centralisée via Traefik, authentification annuaire Active Directory et supervision technique continue.
 
-Ce dossier reprend les éléments de la documentation serveur GLPI, de la fiche RP E5, et des livrables techniques du dossier RP03, dans un format de rapport unique, structuré et soutenable pour la soutenance.
+Ce document présente l’approche d’architecture, la mise en œuvre, la sécurisation, la validation fonctionnelle et un référentiel complet de benchmarks, en particulier pour GLPI.
 
 ---
 
@@ -23,35 +23,34 @@ Ce dossier reprend les éléments de la documentation serveur GLPI, de la fiche 
 
 1. Contexte et enjeux  
 2. Objectifs, périmètre et compétences mobilisées  
-3. Architecture de la solution GLPI  
+3. Architecture de la solution  
 4. Mise en œuvre technique  
 5. Paramétrage helpdesk et intégration annuaire  
 6. Sécurisation, exploitation et maintenance  
 7. Recette fonctionnelle et validation  
-8. Bilan professionnel et perspectives  
-Bibliographie  
-Annexes
+8. Benchmarks de performance et d’exploitation  
+9. Bilan professionnel et perspectives  
+10. Sources techniques  
+11. Annexes
 
 ---
 
 ## 1. Contexte et enjeux
 
-Avant la mise en place de GLPI, les demandes d’assistance étaient traitées de manière informelle (oral, messages), ce qui entraînait :
+Avant la mise en place de la solution, les demandes d’assistance étaient majoritairement traitées de manière informelle (oral, messages), ce qui entraînait :
 
 - perte de demandes ;
 - absence de traçabilité ;
 - faible visibilité sur la charge de support ;
 - absence de priorisation et d’historique exploitable.
 
-Le projet vise donc à industrialiser le support en appliquant un cycle de ticket standard :
+La démarche adoptée industrialise le support avec un cycle de ticket standard :
 
 1. Déclaration de l’incident par l’utilisateur  
 2. Qualification (catégorie, urgence, priorité)  
 3. Affectation à un technicien  
 4. Traitement avec suivi  
 5. Résolution puis clôture
-
-Cette démarche aligne le fonctionnement de la section BTS sur les pratiques professionnelles de support informatique.
 
 ---
 
@@ -60,12 +59,12 @@ Cette démarche aligne le fonctionnement de la section BTS sur les pratiques pro
 ### 2.1 Objectifs opérationnels
 
 - Déployer une plateforme GLPI fonctionnelle sur serveur Linux.
-- Assurer une persistance des données (tickets, utilisateurs, configuration).
+- Assurer une persistance robuste des données (tickets, utilisateurs, configuration).
 - Structurer les rôles et le workflow de traitement des tickets.
 - Intégrer l’authentification à l’annuaire Active Directory.
-- Produire les livrables techniques et utilisateur pour exploitation.
+- Produire une documentation technique et utilisateur exploitable.
 
-### 2.2 Périmètre RP
+### 2.2 Périmètre technique
 
 - **Service principal :** GLPI (ticketing / helpdesk)  
 - **Services d’écosystème :** reverse proxy Traefik, base MariaDB, annuaire AD, supervision (Grafana/Loki/Prometheus), documentation Wiki.
@@ -80,13 +79,13 @@ Cette démarche aligne le fonctionnement de la section BTS sur les pratiques pro
 
 - **Matériel :** serveur Dell PowerEdge, équipements Cisco (routeur/switch/AP)  
 - **Logiciels :** Docker, Docker Compose, GLPI, MariaDB, Traefik  
-- **Ressources documentaires :** documentation officielle GLPI et documentation interne RP03
+- **Ressources documentaires :** documentation officielle GLPI et documentation interne de l’architecture.
 
 ---
 
-## 3. Architecture de la solution GLPI
+## 3. Architecture de la solution
 
-### 3.1 Positionnement dans l’architecture RP03
+### 3.1 Positionnement global
 
 GLPI est hébergé dans le VLAN serveurs et exposé via Traefik.  
 L’authentification des utilisateurs est déléguée à l’Active Directory pour éviter la gestion de comptes locaux multiples.
@@ -116,7 +115,7 @@ L’authentification des utilisateurs est déléguée à l’Active Directory po
 
 Le déploiement est réalisé via Docker Compose, avec un service GLPI et un service MariaDB, puis raccordement au réseau partagé de publication.
 
-Le principe de démarrage :
+Principe de démarrage :
 
 1. Préparer les dossiers de volumes persistants  
 2. Définir les variables sensibles dans un fichier d’environnement  
@@ -170,7 +169,11 @@ Cycle appliqué dans GLPI :
 
 Ce workflow garantit la traçabilité complète et la qualité de suivi.
 
-### 5.4 Intégration LDAP / Active Directory
+### 5.4 Logigramme de qualification et d’escalade
+
+![Logigramme de qualification des tickets](Logigramme.png)
+
+### 5.5 Intégration LDAP / Active Directory
 
 L’annuaire est configuré pour :
 
@@ -226,23 +229,87 @@ La recette couvre :
 
 ---
 
-## 8. Bilan professionnel et perspectives
+## 8. Benchmarks de performance et d’exploitation
 
-### 8.1 Acquis techniques
+### 8.1 Benchmarks prioritaires GLPI (applicatif)
+
+| Indicateur GLPI | Cible recommandée | Mesure |
+|:---|:---|:---|
+| Disponibilité mensuelle GLPI | >= 99,5 % | Uptime monitor |
+| Temps d’ouverture page login (p95) | <= 1,2 s | Navigateur + APM |
+| Authentification LDAP (p95) | <= 2,0 s | Logs applicatifs |
+| Création de ticket (p95) | <= 1,8 s | Test utilisateur instrumenté |
+| Affectation d’un ticket (p95) | <= 1,2 s | Mesure UI |
+| Changement d’état ticket (p95) | <= 1,0 s | Mesure UI |
+| Ajout de suivi/commentaire (p95) | <= 1,0 s | Mesure UI |
+| Recherche ticket (10k entrées, p95) | <= 2,5 s | Requête applicative |
+| Chargement tableau technicien (p95) | <= 2,0 s | APM |
+| Export CSV (1000 tickets) | <= 10 s | Test fonctionnel |
+| Upload pièce jointe 10 Mo | <= 4 s | Test applicatif |
+| Latence notifications e-mail | <= 30 s | Trace SMTP |
+| Taux d’erreurs HTTP 5xx | <= 0,5 % | Reverse proxy logs |
+| Temps de réponse API REST (p95) | <= 400 ms | Tests API |
+| Sessions simultanées stables | >= 100 | Test de charge |
+
+### 8.2 Benchmarks base de données et infrastructure
+
+| Indicateur infra | Cible recommandée | Mesure |
+|:---|:---|:---|
+| Latence requêtes SQL critiques (p95) | <= 50 ms | Slow query log |
+| CPU GLPI (moyenne) | <= 65 % | Prometheus |
+| CPU GLPI (pic) | <= 85 % | Prometheus |
+| RAM GLPI | <= 2,5 Go | cAdvisor |
+| RAM MariaDB | <= 3,0 Go | cAdvisor |
+| Temps de démarrage stack complète | <= 120 s | Docker events |
+| Occupation disque volumes applicatifs | <= 80 % | Node exporter |
+| I/O disque en charge | stable sans saturation | iostat / exporter |
+| Sauvegarde base complète | <= 15 min | Job backup |
+| Restauration base complète | <= 20 min | Test PRA |
+| RPO (perte max de données) | <= 24 h | Politique backup |
+| RTO (remise en service) | <= 60 min | Exercice PRA |
+
+### 8.3 Benchmarks de support et qualité de service
+
+| Indicateur support | Cible recommandée | Mesure |
+|:---|:---|:---|
+| MTTA (prise en charge) | <= 15 min | Stats GLPI |
+| MTTR incidents critiques | <= 4 h | Stats GLPI |
+| Respect SLA global | >= 95 % | Rapports GLPI |
+| Taux résolution au premier contact | >= 70 % | Rapports GLPI |
+| Taux de réouverture de tickets | <= 8 % | Rapports GLPI |
+| Tickets en backlog > 7 jours | <= 10 % | Rapports GLPI |
+| Satisfaction utilisateur | >= 4/5 | Enquêtes post-clôture |
+
+### 8.4 Benchmarks sécurité et conformité
+
+| Indicateur sécurité | Cible recommandée | Mesure |
+|:---|:---|:---|
+| Correction vulnérabilités critiques | <= 72 h | Suivi patching |
+| Couverture mises à jour mensuelles | 100 % | Journal de maintenance |
+| Détection tentatives de connexion anormales | <= 1 min | Alerting SIEM/logs |
+| Comptes administrateurs durcis | 100 % | Revue de configuration |
+| Secrets hors dépôt de code | 100 % | Audit de configuration |
+| Certificats TLS valides | 100 % | Monitoring certifs |
+
+---
+
+## 9. Bilan professionnel et perspectives
+
+### 9.1 Acquis techniques
 
 - déploiement d’un service métier en environnement conteneurisé ;
 - structuration d’un processus de support réaliste ;
 - intégration annuaire pour authentification centralisée ;
-- formalisation de livrables exploitables en contexte réel.
+- formalisation d’une documentation exploitable en contexte réel.
 
-### 8.2 Valeur ajoutée pour l’établissement
+### 9.2 Valeur ajoutée pour l’établissement
 
 - support centralisé et traçable ;
 - meilleure communication utilisateurs/techniciens ;
 - historique exploitable pour piloter l’amélioration continue ;
 - base solide pour les futurs projets d’infrastructure.
 
-### 8.3 Pistes d’évolution
+### 9.3 Pistes d’évolution
 
 - enrichissement du portail utilisateur ;
 - tableaux de bord avancés de pilotage ;
@@ -251,20 +318,21 @@ La recette couvre :
 
 ---
 
-## Bibliographie
+## 10. Sources techniques
 
-- Documentation GLPI Serveur (référence projet)  
-- Fiche descriptive RP GLPI (annexe E5)  
+- Documentation GLPI Serveur  
 - Documentation officielle GLPI  
-- Livrables techniques RP03 (L1 à L9)
+- Documentation Docker et Docker Compose  
+- Documentation Traefik et bonnes pratiques TLS  
+- Documentation LDAP / Active Directory
 
 ---
 
-## Annexes
+## 11. Annexes
 
 | Référence | Titre |
 |:---|:---|
-| L1 | Schéma d’architecture RP03 |
+| L1 | Schéma d’architecture |
 | L2 | Documentation GLPI + LDAP |
 | L3 | Documentation Nextcloud + LDAP |
 | L4 | Documentation Wiki Outline + LDAP |
