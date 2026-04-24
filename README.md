@@ -1,4 +1,4 @@
-# L10 — Dossier de Réalisation Professionnelle GLPI (Version structurée)
+# Dossier de Réalisation Professionnelle GLPI (Version structurée)
 **Projet :** RP-03 — Déploiement d'outils open source pour CFA IRIS Nice  
 **Réalisation n° :** 3  
 **Auteur :** Louka Lavenir  
