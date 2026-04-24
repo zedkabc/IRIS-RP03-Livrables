@@ -57,63 +57,7 @@ L'architecture applicative repose sur une **approche conteneurisée (Docker)** a
 
 **Authentification unifiée :** Tous les services s'authentifient via **LDAP** sur l'OpenLDAP existant (RP-02).
 
-### 2.2 Schéma architecture applicative
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         VLAN 10 - Serveurs (10.10.10.0/24)              │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐ │
-│  │                    Serveur Linux (Debian 12)                      │ │
-│  │                                                                   │ │
-│  │  ┌─────────────────────────────────────────────────────────────┐ │ │
-│  │  │                  TRAEFIK (Reverse Proxy)                    │ │ │
-│  │  │         Point d'entrée unique - HTTP (port 80)            │ │ │
-│  │  │              Certificat auto-signé *.iris.a3n.fr            │ │ │
-│  │  └────┬────────┬─────────┬──────────┬──────────────┬──────────┘ │ │
-│  │       │        │         │          │              │            │ │
-│  │  ┌────▼────┐ ┌─▼──────┐ ┌▼────────┐ ┌▼──────────┐ ┌▼─────────┐ │ │
-│  │  │  GLPI   │ │Nextcloud│ │ Outline │ │  Grafana  │ │  Loki    │ │ │
-│  │  │(Focus)  │ │(Cloud)  │ │ (Wiki)  │ │(Dashboards│ │ (Logs)   │ │ │
-│  │  │Port 8080│ │Port 8080│ │Port 8080│ │ Port 3000)│ │Port 3100 │ │ │
-│  │  └────┬────┘ └─┬───────┘ └┬────────┘ └┬──────────┘ └┬─────────┘ │ │
-│  │       │        │          │           │             │           │ │
-│  │  ┌────▼────────▼──────────▼───────────▼─────────────▼─────────┐ │ │
-│  │  │          MariaDB / PostgreSQL (Bases de données)           │ │ │
-│  │  │   - glpi_db (pour GLPI)                                    │ │ │
-│  │  │   - nextcloud_db (pour Nextcloud)                          │ │ │
-│  │  │   - outline_db (pour Outline)                              │ │ │
-│  │  └────────────────────────────────────────────────────────────┘ │ │
-│  │                                                                   │ │
-│  │  ┌────────────────────────────────────────────────────────────┐ │ │
-│  │  │             Prometheus (Métriques)                         │ │ │
-│  │  │             Port 9090                                      │ │ │
-│  │  └────────────────────────────────────────────────────────────┘ │ │
-│  │                                                                   │ │
-│  └───────────────────────────────────────────────────────────────────┘ │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    │ LDAP Bind
-                                    │
-                          ┌─────────▼──────────┐
-                          │  OpenLDAP  │
-                          │  (RP-02)           │
-                          │  Authentification  │
-                          │  Groupes AD        │
-                          └────────────────────┘
-                                    ▲
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │                               │
-            ┌───────▼────────┐            ┌────────▼────────┐
-            │  VLAN 20       │            │  VLAN 30        │
-            │  Postes        │            │  WiFi           │
-            │  Étudiants     │            │  Étudiants      │
-            └────────────────┘            └─────────────────┘
-```
-
-### 2.3 URLs d'accès (via Traefik)
+### 2.2 URLs d'accès (via Traefik)
 
 | Service | URL | Authentification | Port interne |
 |:---|:---|:---|:---|
@@ -202,7 +146,7 @@ Grafana (VLAN 10)
 Tous les services utilisent la même configuration LDAP pour se connecter à l'OpenLDAP (RP-02) :
 
 **Paramètres LDAP :**
-- **Serveur LDAP :** `ldap://openldap:389` (ou LDAPS sur port 636)
+- **Serveur LDAP :** `ldap://openldap:389`
 - **Base DN :** `dc=mediaschool,dc=local`
 - **Bind DN :** `cn=admin,dc=mediaschool,dc=local`
 - **Filtre utilisateurs :** `(objectClass=inetOrgPerson)`
@@ -362,35 +306,7 @@ iptables -A INPUT -s 10.10.99.0/24 -j ACCEPT
 
 GLPI implémente un système de ticketing professionnel avec classification par **niveau d'intervention (N1/N2/N3)** :
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Ticket créé par utilisateur                │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-              ┌──────────────────────┐
-              │ Analyse du problème  │
-              │ (nature du ticket)   │
-              └──────────┬───────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-┌───────────────┐ ┌──────────────┐ ┌────────────────┐
-│ Problème      │ │ Problème     │ │ Problème       │
-│ simple ?      │ │ technique ?  │ │ complexe /     │
-│ (compte, MDP, │ │ (matériel,   │ │ critique ?     │
-│ accès, info)  │ │ réseau,      │ │ (bug applicatif│
-│               │ │ config)      │ │ sécurité,      │
-│               │ │              │ │ évolution)     │
-└───────┬───────┘ └──────┬───────┘ └────────┬───────┘
-        │                │                  │
-        ▼                ▼                  ▼
-   ┌────────┐       ┌────────┐        ┌────────┐
-   │ N1     │       │ N2     │        │ N3     │
-   │ Support│       │ Tech   │        │ Expert │
-   └────────┘       └────────┘        └────────┘
-```
+![Texte alternatif](Logigramme.png)
 
 **Niveaux d'intervention :**
 - **N1** — Support de base (réinitialisation MDP, création compte, demande d'info)
