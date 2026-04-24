@@ -1,0 +1,1024 @@
+# L2 — Documentation Installation et Configuration GLPI + LDAP
+**Projet :** RP-03 — Déploiement d'outils open source pour CFA IRIS Nice  
+**Service :** GLPI (Helpdesk & Ticketing) — **FOCUS PRINCIPAL**  
+**Auteur :** Louka Lavenir  
+**Date :** 20 mars 2026
+
+---
+
+## 1. Introduction
+
+GLPI (Gestion Libre de Parc Informatique) est un système de helpdesk et de gestion d'incidents open source utilisé par de nombreuses entreprises et administrations françaises.
+
+**Dans le cadre du projet RP-03, GLPI constitue le service principal** permettant de centraliser et gérer les demandes d'assistance informatique des étudiants et enseignants de l'école IRIS Nice.
+
+### 1.1 Objectifs
+
+- Mettre en place un système de ticketing professionnel
+- Centraliser les demandes d'assistance (pas de demandes perdues ou oubliées)
+- Tracer tous les incidents et leur résolution
+- Classifier les tickets par niveau d'intervention (N1/N2/N3)
+- Intégrer l'authentification avec l'Active Directory existant (RP-02)
+- Exposer le service en HTTP via Traefik
+
+### 1.2 Pourquoi GLPI ?
+
+**Comparaison avec les alternatives du marché :**
+
+| Critère | GLPI | ServiceNow | Jira Service Management | ManageEngine |
+|:---|:---|:---|:---|:---|
+| **Coût licence** | 0 € (Open Source) | 50 000 € - 500 000 €/an | 20-50 €/agent/mois | 13-60 €/technicien/mois |
+| **Souveraineté données** | ✅ Auto-hébergé | ❌ Cloud (US) | ⚠️ Cloud ou auto-hébergé | ⚠️ Cloud ou auto-hébergé |
+| **Inventaire intégré** | ✅ Natif | ✅ Natif (payant) | ❌ Module séparé (Assets) | ✅ Natif (version Enterprise) |
+| **Éditeur français** | ✅ Teclib' (France) | ❌ ServiceNow Inc (US) | ❌ Atlassian (Australie) | ❌ Zoho (Inde) |
+| **Conformité RGPD** | ✅ Totale (données en France) | ⚠️ Cloud Act | ⚠️ Selon hébergement | ⚠️ Selon hébergement |
+| **Communauté francophone** | ✅ Très large | ⚠️ Limitée | ✅ Bonne | ⚠️ Limitée |
+
+**Verdict :** GLPI est le seul outil qui réunit **helpdesk + inventaire dans une interface unifiée, sans frais de licence, tout en étant open source et français.**
+
+---
+
+## 2. Prérequis
+
+### 2.1 Système d'exploitation
+
+- **Serveur :** Debian 12 (ou Ubuntu 22.04 LTS)
+- **RAM minimum :** 4 Go (recommandé : 8 Go)
+- **Disque :** 50 Go minimum (pour base de données + pièces jointes)
+- **CPU :** 2 vCPU minimum
+
+### 2.2 Logiciels requis
+
+- **Docker** : version 24.0+
+- **Docker Compose** : version 2.20+
+- **Active Directory** : opérationnel (RP-02)
+- **Traefik** : reverse proxy configuré (voir L6)
+
+### 2.3 Réseau
+
+- **VLAN :** Serveur hébergé sur VLAN 10 (10.10.10.0/24)
+- **DNS :** Entrée DNS `glpi.iris.a3n.fr` pointant vers l'IP du serveur
+- **Ports internes :**
+  - GLPI : 8080 (HTTP, via Traefik uniquement)
+  - MariaDB : 3306 (interne au serveur)
+- **Port externe :** 443 (HTTP via Traefik)
+
+---
+
+## 3. Installation GLPI avec Docker Compose
+
+### 3.1 Structure des fichiers
+
+```
+/opt/iris-services/glpi/
+├── docker-compose.yml
+├── config/
+│   └── ldap.xml              # Configuration LDAP (optionnel)
+├── volumes/
+│   ├── glpi-data/            # Données GLPI (pièces jointes, plugins)
+│   └── mariadb-data/         # Base de données MariaDB
+└── backup/                   # Sauvegardes
+```
+
+### 3.2 Fichier docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  mariadb-glpi:
+    container_name: mariadb-glpi
+    image: mariadb:10.11
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${GLPI_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: glpi_db
+      MYSQL_USER: glpi_user
+      MYSQL_PASSWORD: ${GLPI_DB_PASSWORD}
+    volumes:
+      - ./volumes/mariadb-data:/var/lib/mysql
+    networks:
+      - glpi-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  glpi:
+    container_name: glpi
+    image: diouxx/glpi:latest
+    restart: always
+    # PAS de section ports: — Traefik gère l'accès via réseau Docker interne
+    environment:
+      TIMEZONE: Europe/Paris
+    volumes:
+      - ./volumes/glpi-data:/var/www/html/glpi
+    depends_on:
+      - mariadb-glpi
+    networks:
+      - glpi-network      # Réseau interne pour communiquer avec MariaDB
+      - traefik-network   # Réseau partagé avec Traefik
+    labels:
+      # Configuration Traefik (reverse proxy)
+      - "traefik.enable=true"
+      - "traefik.http.routers.glpi.rule=Host(`glpi.iris.a3n.fr`)"
+      - "traefik.http.routers.glpi.entrypoints=web"
+      - "traefik.http.services.glpi.loadbalancer.server.port=80"
+      - "traefik.docker.network=traefik-network"  # Force Traefik à utiliser ce réseau
+
+networks:
+  glpi-network:
+    driver: bridge
+  traefik-network:
+    external: true
+```
+
+**⚠️ Points importants :**
+- **Pas de section `ports:`** — Traefik route le trafic via le réseau Docker interne. Publier le port 8080 sur l'hôte créerait un conflit avec les autres services.
+- **Deux réseaux :** `glpi-network` (interne, pour communiquer avec MariaDB) et `traefik-network` (externe, partagé avec Traefik).
+- **Label `traefik.docker.network`** — Nécessaire quand un conteneur est sur plusieurs réseaux. Sans ce label, Traefik peut essayer de router via le mauvais réseau → erreur 502 Bad Gateway.
+- **Variables d'environnement** — Les mots de passe sont définis dans un fichier `.env` (voir section 3.4).
+
+### 3.3 Fichier .env (Sécurité)
+
+**Créer le fichier `/opt/iris-services/glpi/.env` :**
+
+```env
+# Mots de passe base de données GLPI
+GLPI_DB_ROOT_PASSWORD=mot_de_passe_root_complexe_ici
+GLPI_DB_PASSWORD=mot_de_passe_glpi_complexe_ici
+```
+
+**⚠️ Sécurité :**
+- Ce fichier ne doit **jamais** être commité dans un repository Git (ajouter `.env` au `.gitignore`)
+- Permissions restrictives : `chmod 600 .env` (lecture/écriture root uniquement)
+- Utiliser des mots de passe forts (minimum 16 caractères, alphanumériques + symboles)
+
+### 3.3 Déploiement
+
+```bash
+# Créer le réseau Traefik (si pas déjà fait)
+docker network create traefik-network
+
+# Se placer dans le dossier GLPI
+cd /opt/iris-services/glpi/
+
+# Créer les dossiers de volumes
+mkdir -p volumes/glpi-data volumes/mariadb-data backup
+
+# Créer le fichier .env avec les mots de passe (voir section 3.3)
+nano .env
+
+# Démarrer les conteneurs
+docker compose up -d
+
+# Vérifier les logs
+docker compose logs -f glpi
+
+# Attendre que GLPI soit prêt (environ 2-3 minutes au premier démarrage)
+```
+
+### 3.4 Accès initial
+
+**URL :** http://glpi.iris.a3n.fr (via Traefik)
+
+**Installation wizard GLPI :**
+
+1. **Choix langue :** Français
+2. **Accepter licence :** GPL v3
+3. **Installer / Mettre à jour :** Installer
+4. **Vérifications système :** Tout doit être vert
+5. **Connexion base de données :**
+   - Serveur SQL : `mariadb-glpi`
+   - Utilisateur SQL : `glpi_user`
+   - Mot de passe SQL : `[voir fichier .env sécurisé]`
+6. **Sélection base :** `glpi_db`
+7. **Initialisation base :** Continuer
+8. **Étape suivante :** Continuer
+9. **Fin installation :** Connexion
+
+**Comptes par défaut :**
+- **Super-Admin :** glpi / glpi
+- **Admin :** tech / tech
+- **Post-only :** post-only / postonly
+
+**⚠️ SÉCURITÉ CRITIQUE :** Changer immédiatement tous les mots de passe par défaut après première connexion.
+
+---
+
+## 4. Configuration Initiale
+
+### 4.1 Changement des mots de passe
+
+**Se connecter avec :** glpi / glpi
+
+**Administration → Utilisateurs :**
+1. Sélectionner l'utilisateur `glpi`
+2. Onglet **Mot de passe**
+3. Nouveau mot de passe : `[mot_de_passe_fort_admin]`
+4. Confirmer
+
+**Répéter pour :** tech, post-only, normal
+
+### 4.2 Configuration générale
+
+**Configuration → Générale :**
+
+**Onglet Configuration Générale :**
+- Nom de l'instance : `GLPI IRIS Nice - Helpdesk`
+- URL de l'application : `http://glpi.iris.a3n.fr:8080`
+- Fuseau horaire : `Europe/Paris`
+- Langue par défaut : `Français`
+
+**Onglet Configuration d'affichage :**
+- Format de date : `JJ-MM-AAAA`
+- Format d'heure : `HH:MM`
+
+**Onglet Restrictions d'accès :**
+- Activer restriction par IP : Non (authentification AD suffit)
+
+### 4.3 Suppression des fichiers d'installation
+
+```bash
+# Se connecter au conteneur GLPI
+docker exec -it glpi bash
+
+# Supprimer le fichier install
+rm -f /var/www/html/glpi/install/install.php
+
+# Quitter le conteneur
+exit
+```
+
+---
+
+## 5. Configuration LDAP (Active Directory)
+
+### 5.1 Ajout du serveur LDAP
+
+**Configuration → Authentification → Annuaire LDAP → Ajouter**
+
+**Informations principales :**
+- **Nom :** Active Directory IRIS Nice
+- **Serveur par défaut :** Oui
+- **Actif :** Oui
+
+**Informations de connexion :**
+- **Serveur :** `ldap://ad.iris.a3n.fr` (ou IP du contrôleur de domaine)
+- **Port :** `389` (LDAP) ou `636` (LDAPS sécurisé)
+- **Filtre de connexion :** `(&(objectClass=user)(sAMAccountName=*))`
+- **BaseDN :** `DC=iris,DC=a3n,DC=fr`
+- **RootDN (utilisateur de liaison) :** `CN=service-ldap,OU=ServiceAccounts,DC=iris,DC=a3n,DC=fr`
+- **Mot de passe (de liaison) :** `[mot_de_passe_compte_service_ldap]`
+
+**Utiliser TLS :** Oui (si LDAPS sur port 636)
+
+**Informations de recherche :**
+- **Attribut de connexion :** `samaccountname`
+- **Champ de l'identifiant :** `samaccountname`
+- **Champ du nom :** `sn`
+- **Champ du prénom :** `givenname`
+- **Champ de l'email :** `mail`
+- **Champ du téléphone :** `telephonenumber`
+
+**Filtre de recherche des utilisateurs :**
+```ldap
+(&(objectClass=user)(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+```
+*Ce filtre exclut les comptes désactivés.*
+
+**Filtre de recherche des groupes :**
+```ldap
+(objectClass=group)
+```
+
+### 5.2 Test de connexion LDAP
+
+**Configuration → Authentification → Annuaire LDAP → Tester**
+
+**Saisir :**
+- Identifiant : `[un_compte_AD_test]`
+- Mot de passe : `[mot_de_passe_AD]`
+
+**Résultat attendu :**
+```
+Connexion réussie
+Utilisateur trouvé : Prénom Nom (email@iris.a3n.fr)
+```
+
+### 5.3 Import des utilisateurs depuis AD
+
+**Administration → Utilisateurs → Liaison annuaire LDAP**
+
+1. **Sélectionner l'annuaire :** Active Directory IRIS Nice
+2. **Rechercher dans LDAP :**
+   - Filtre : `*` (tous les utilisateurs)
+   - Résultat : Liste des utilisateurs AD
+3. **Sélectionner les utilisateurs à importer**
+4. **Actions → Importer**
+
+**Résultat :** Les utilisateurs AD sont créés dans GLPI avec leurs informations (nom, prénom, email).
+
+### 5.4 Synchronisation automatique
+
+**Configuration → Authentification → Annuaire LDAP → Éditer**
+
+**Règles de liaison LDAP :**
+- Activer l'importation automatique : Oui
+- Synchroniser les champs lors de la connexion : Oui
+- Synchroniser les groupes : Oui
+
+**Planification de synchronisation (via cron) :**
+```bash
+# Ajouter dans crontab du serveur
+0 2 * * * docker exec glpi php /var/www/html/glpi/front/ldap.php
+```
+*Synchronise tous les jours à 2h du matin.*
+
+---
+
+## 6. Configuration des Profils Utilisateurs
+
+### 6.1 Profils par défaut GLPI
+
+| Profil | Droits | Usage |
+|:---|:---|:---|
+| **Super-Admin** | Tous les droits (config, utilisateurs, base) | Administrateur système |
+| **Admin** | Gestion tickets, inventaire, config limitée | Responsable technique |
+| **Technicien** | Gestion tickets, consultation inventaire | Technicien support |
+| **Hotliner** | Création tickets, traitement niveau 1 | Support N1 |
+| **Observateur** | Consultation uniquement | Manager, auditeur |
+| **Self-Service** | Création tickets uniquement | Utilisateur final |
+
+### 6.2 Mapping Groupes AD → Profils GLPI
+
+**Administration → Règles → Règles d'affectation d'entité et de droits**
+
+**Règle 1 — Admins AD → Super-Admin GLPI**
+- **Nom :** Attribution Super-Admin pour groupe Admins
+- **Critères :**
+  - `Groupe LDAP` / `est` / `CN=Admins,OU=Groups,DC=iris,DC=a3n,DC=fr`
+- **Actions :**
+  - `Profil` / `Attribuer` / `Super-Admin`
+  - `Entité` / `Attribuer` / `Root entity`
+  - `Récursif` / `Oui`
+
+**Règle 2 — Enseignants AD → Technicien GLPI**
+- **Nom :** Attribution Technicien pour groupe Enseignants
+- **Critères :**
+  - `Groupe LDAP` / `est` / `CN=Enseignants,OU=Groups,DC=iris,DC=a3n,DC=fr`
+- **Actions :**
+  - `Profil` / `Attribuer` / `Technicien`
+  - `Entité` / `Attribuer` / `Root entity`
+  - `Récursif` / `Oui`
+
+**Règle 3 — Étudiants AD → Self-Service GLPI**
+- **Nom :** Attribution Self-Service pour groupe Étudiants
+- **Critères :**
+  - `Groupe LDAP` / `est` / `CN=Etudiants,OU=Groups,DC=iris,DC=a3n,DC=fr`
+- **Actions :**
+  - `Profil` / `Attribuer` / `Self-Service`
+  - `Entité` / `Attribuer` / `Root entity`
+  - `Récursif` / `Non`
+
+**Ordre d'exécution des règles :** 1 → 2 → 3 (du plus restrictif au plus permissif)
+
+---
+
+## 7. Configuration des Catégories de Tickets
+
+### 7.1 Arborescence des catégories
+
+**Assistance → Catégories de tickets**
+
+**Catégories principales (niveau 1) :**
+1. **Problème réseau**
+2. **Problème login / compte**
+3. **Problème matériel**
+4. **Demande d'installation**
+5. **Sécurité**
+6. **Autre**
+
+**Sous-catégories (niveau 2) :**
+
+**1. Problème réseau**
+- Pas de connexion WiFi
+- Pas de connexion filaire
+- Lenteur réseau
+- VLAN incorrect
+- Problème IP (DHCP)
+
+**2. Problème login / compte**
+- Impossible de se connecter
+- Mot de passe oublié
+- Compte bloqué
+- Droits insuffisants
+- Création de compte
+
+**3. Problème matériel**
+- PC ne démarre pas
+- Écran cassé / défaillant
+- Clavier / souris défaillant
+- Problème imprimante
+- Autre périphérique
+
+**4. Demande d'installation**
+- Installation logiciel
+- Installation matériel
+- Accès à un service
+- Configuration poste
+
+**5. Sécurité**
+- Faille détectée
+- Accès non autorisé
+- Virus / malware
+- Incident de sécurité
+
+**6. Autre**
+- Demande d'information
+- Suggestion d'amélioration
+
+### 7.2 Configuration d'une catégorie
+
+**Exemple : Catégorie "Problème réseau"**
+
+**Informations principales :**
+- **Nom :** Problème réseau
+- **Commentaire :** Tous les problèmes liés au réseau (WiFi, filaire, VLAN)
+- **Visible dans l'interface simplifiée :** Oui
+- **Catégorie pour les modèles de ticket :** Oui
+
+**Modèle de ticket associé :**
+- Urgence par défaut : Moyenne
+- Impact par défaut : Moyen
+- Priorité par défaut : Moyenne (calculée automatiquement)
+
+**Groupe assigné par défaut :**
+- Groupe de techniciens : `Techniciens Réseau` (à créer dans Administration → Groupes)
+
+**SLA associé :**
+- Temps de prise en compte : 2 heures
+- Temps de résolution : 24 heures
+
+### 7.3 Création d'un groupe de techniciens
+
+**Administration → Groupes → Ajouter**
+
+**Groupe : Techniciens Réseau**
+- **Nom :** Techniciens Réseau
+- **Groupe assigné aux tickets :** Oui
+- **Niveau de notification :** Notification à tous les membres
+
+**Ajouter des utilisateurs au groupe :**
+- Sélectionner les enseignants qui gèrent le réseau
+- Profil : Technicien
+
+**Répéter pour :**
+- Techniciens Système
+- Techniciens Développement
+- Support N1
+
+---
+
+## 8. Workflow de Ticketing N1/N2/N3
+
+### 8.1 Logique de classification
+
+Le système de niveaux (N1/N2/N3) permet de **router les tickets vers les bonnes compétences** :
+
+```
+Ticket créé
+    │
+    ▼
+┌─────────────────┐
+│ Auto-analyse    │  ← Catégorie choisie par l'utilisateur
+│ (via catégorie) │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐  ┌───────┐
+│  N1   │  │  N2   │
+│Simple │  │Techni-│
+│       │  │que    │
+└───┬───┘  └───┬───┘
+    │          │
+    │          │
+    │      ┌───▼───┐
+    │      │  N3   │
+    │      │Expert │
+    │      └───────┘
+    │
+    └─→ Résolution directe
+```
+
+### 8.2 Règles de routage automatique
+
+**Assistance → Règles métier → Règles métier pour les tickets**
+
+**Règle N1 — Support basique**
+- **Critères :**
+  - `Catégorie` / `est` / `Problème login / compte` OU `Demande d'installation (logiciel standard)`
+- **Actions :**
+  - `Groupe assigné` / `Support N1`
+  - `Temps de résolution` / `4 heures`
+
+**Règle N2 — Support technique**
+- **Critères :**
+  - `Catégorie` / `est` / `Problème réseau` OU `Problème matériel`
+- **Actions :**
+  - `Groupe assigné` / `Techniciens Réseau` ou `Techniciens Système`
+  - `Temps de résolution` / `24 heures`
+
+**Règle N3 — Expertise**
+- **Critères :**
+  - `Catégorie` / `est` / `Sécurité` OU `Urgence` / `est` / `Très haute`
+- **Actions :**
+  - `Groupe assigné` / `Experts`
+  - `Temps de résolution` / `48 heures`
+  - `Notification` / `Envoyer à responsable technique`
+
+### 8.3 Cycle de vie d'un ticket
+
+**États GLPI :**
+
+1. **Nouveau (New)** — Ticket créé, en attente d'assignation
+2. **En cours (traitement) (Processing - Assigned)** — Ticket assigné à un technicien
+3. **En cours (planifié) (Processing - Planned)** — Intervention planifiée
+4. **En attente (Waiting)** — Bloqué (en attente utilisateur ou ressource externe)
+5. **Résolu (Solved)** — Solution appliquée, en attente validation utilisateur
+6. **Clos (Closed)** — Ticket validé et fermé définitivement
+
+**Workflow standard :**
+```
+Nouveau → En cours (Assigned) → Résolu → Clos
+         ↓ (si bloqué)
+         En attente → En cours (Assigned)
+```
+
+**Réouverture automatique :**
+Si un utilisateur répond à un ticket **Résolu**, il repasse automatiquement en **En cours**.
+
+---
+
+## 9. Configuration des Notifications
+
+### 9.1 Configuration SMTP
+
+**Configuration → Notifications → Configuration des suivis par courriels**
+
+**Onglet Configuration du courriel :**
+- **Administrateur email :** `admin@iris.a3n.fr`
+- **Nom de l'administrateur :** `Support IRIS Nice`
+- **Adresse email de réponse :** `noreply@iris.a3n.fr`
+- **Signature :** 
+  ```
+  ---
+  Support IRIS Nice - Helpdesk GLPI
+  http://glpi.iris.a3n.fr:8080
+  ```
+
+**Onglet Configuration du serveur de messagerie :**
+- **Méthode d'envoi :** SMTP
+- **Serveur SMTP :** `smtp.iris.a3n.fr` (ou serveur SMTP externe)
+- **Port SMTP :** `587` (STARTTLS) ou `465` (SSL)
+- **Connexion SMTP nécessite une authentification :** Oui
+- **Nom d'utilisateur SMTP :** `glpi-noreply@iris.a3n.fr`
+- **Mot de passe SMTP :** `[mot_de_passe_smtp]`
+- **Chiffrement SMTP :** STARTTLS
+
+**Tester l'envoi :**
+- **Configuration → Notifications → Envoyer un courriel de test**
+- Saisir une adresse email de test
+- Vérifier réception
+
+### 9.2 Modèles de notifications
+
+**Configuration → Notifications → Modèles de notifications**
+
+**Modèles par défaut (à personnaliser) :**
+
+**1. Nouveau ticket (pour le demandeur)**
+- **Objet :** `[GLPI] Votre ticket ##ticket.id## a été créé`
+- **Contenu :**
+  ```
+  Bonjour ##ticket.author.firstname##,
+  
+  Votre demande d'assistance a bien été enregistrée.
+  
+  Numéro du ticket : ##ticket.id##
+  Objet : ##ticket.title##
+  Catégorie : ##ticket.category##
+  Urgence : ##ticket.urgency##
+  
+  Vous pouvez suivre l'évolution de votre ticket à cette adresse :
+  ##ticket.url##
+  
+  Cordialement,
+  L'équipe Support IRIS Nice
+  ```
+
+**2. Ticket assigné (pour le technicien)**
+- **Objet :** `[GLPI] Le ticket ##ticket.id## vous a été assigné`
+- **Contenu :**
+  ```
+  Bonjour ##ticket.assign.firstname##,
+  
+  Un nouveau ticket vous a été assigné.
+  
+  Numéro : ##ticket.id##
+  Demandeur : ##ticket.author.name##
+  Objet : ##ticket.title##
+  Catégorie : ##ticket.category##
+  Urgence : ##ticket.urgency##
+  
+  Description :
+  ##ticket.description##
+  
+  Lien vers le ticket :
+  ##ticket.url##
+  ```
+
+**3. Ticket résolu (pour le demandeur)**
+- **Objet :** `[GLPI] Votre ticket ##ticket.id## a été résolu`
+- **Contenu :**
+  ```
+  Bonjour ##ticket.author.firstname##,
+  
+  Votre ticket a été marqué comme résolu.
+  
+  Numéro : ##ticket.id##
+  Objet : ##ticket.title##
+  
+  Solution apportée :
+  ##ticket.solution.description##
+  
+  Si le problème persiste, vous pouvez rouvrir le ticket en y répondant.
+  Sinon, il sera automatiquement clos dans 7 jours.
+  
+  Lien vers le ticket :
+  ##ticket.url##
+  ```
+
+### 9.3 Événements de notification
+
+**Configuration → Notifications → Notifications → Tickets**
+
+**Événements activés :**
+
+| Événement | Destinataires |
+|:---|:---|
+| **Nouveau ticket** | Demandeur, Groupe assigné |
+| **Ajout suivi** | Demandeur, Technicien assigné |
+| **Ticket assigné** | Technicien assigné |
+| **Ticket résolu** | Demandeur |
+| **Ticket clos** | Demandeur |
+| **Rappel de ticket (SLA)** | Technicien assigné, Superviseur |
+| **Réouverture ticket** | Technicien assigné, Superviseur |
+
+---
+
+## 10. Interface Self-Service (Utilisateurs)
+
+### 10.1 Accès interface simplifiée
+
+**URL :** http://glpi.iris.a3n.fr:8080
+
+**Connexion :**
+- Identifiant : `[compte_AD_etudiant]`
+- Mot de passe : `[mot_de_passe_AD]`
+
+**Interface simplifiée affichée automatiquement pour le profil Self-Service.**
+
+### 10.2 Créer un ticket
+
+**Accueil → Créer un ticket**
+
+**Formulaire :**
+1. **Titre :** Description courte du problème
+2. **Catégorie :** Choisir dans la liste (ex : "Problème réseau")
+3. **Urgence :** 
+   - Très basse
+   - Basse
+   - Moyenne (par défaut)
+   - Haute
+   - Très haute
+4. **Description :** Description détaillée du problème
+5. **Pièces jointes :** Captures d'écran, logs, etc.
+
+**Soumettre le ticket.**
+
+### 10.3 Suivre ses tickets
+
+**Accueil → Mes tickets**
+
+**Vue :**
+- Liste de tous les tickets créés par l'utilisateur
+- Statut (Nouveau, En cours, Résolu, Clos)
+- Numéro, Titre, Date de création, Date de mise à jour
+
+**Cliquer sur un ticket :**
+- Voir détails complets
+- Historique des actions
+- Ajouter un suivi (message au technicien)
+- Ajouter une pièce jointe
+
+---
+
+## 11. Interface Technicien
+
+### 11.1 Connexion technicien
+
+**URL :** http://glpi.iris.a3n.fr:8080
+
+**Connexion :**
+- Identifiant : `[compte_AD_enseignant]`
+- Mot de passe : `[mot_de_passe_AD]`
+
+**Interface complète GLPI affichée (pas interface simplifiée).**
+
+### 11.2 Vue des tickets à traiter
+
+**Assistance → Tickets**
+
+**Vues disponibles :**
+- **Tous les tickets** — Liste complète
+- **Mes tickets** — Tickets assignés au technicien connecté
+- **Tickets non attribués** — En attente d'assignation
+- **Tickets de mon groupe** — Tickets du groupe du technicien
+
+**Filtres :**
+- Statut : Nouveau, En cours, En attente
+- Catégorie
+- Urgence
+- Date de création / mise à jour
+
+### 11.3 Traiter un ticket
+
+**Cliquer sur un ticket → Vue détaillée**
+
+**Actions disponibles :**
+
+1. **Prendre en charge**
+   - Cliquer sur **Attribuer à moi-même**
+   - Statut passe de "Nouveau" à "En cours (traitement)"
+
+2. **Ajouter un suivi**
+   - Onglet **Suivi**
+   - Cliquer sur **Ajouter un suivi**
+   - Saisir message (description de l'intervention, questions à l'utilisateur)
+   - Cocher **Envoyer notification** pour informer le demandeur
+
+3. **Changer le statut**
+   - Statut → Sélectionner "En attente" si bloqué
+   - Ajouter un suivi expliquant pourquoi (ex : "En attente de validation enseignant")
+
+4. **Résoudre le ticket**
+   - Onglet **Solution**
+   - Type de solution : 
+     - Résolu
+     - Résolu (avec approbation)
+   - Description de la solution appliquée
+   - Cliquer sur **Ajouter une solution**
+   - Statut passe à "Résolu"
+   - Email envoyé au demandeur
+
+5. **Clore le ticket**
+   - Si le demandeur valide → Statut passe automatiquement à "Clos" après 7 jours
+   - Ou clôture manuelle si validation immédiate
+
+### 11.4 Statistiques technicien
+
+**Assistance → Statistiques**
+
+**Métriques disponibles :**
+- Nombre de tickets traités (par période)
+- Temps moyen de résolution
+- Tickets par catégorie
+- Tickets par urgence
+- Satisfaction utilisateur (si enquête activée)
+
+---
+
+## 12. Interface Administrateur
+
+### 12.1 Accès complet
+
+**Connexion avec compte Super-Admin.**
+
+**Sections accessibles :**
+- **Administration** — Utilisateurs, groupes, profils, règles
+- **Configuration** — LDAP, notifications, SLA, entités
+- **Outils** — Logs, base de données, plugins
+- **Plugins** — Installer / gérer les extensions GLPI
+
+### 12.2 Gestion des utilisateurs
+
+**Administration → Utilisateurs**
+
+**Actions :**
+- Voir liste complète (locaux + LDAP)
+- Éditer un utilisateur (email, téléphone, profil)
+- Désactiver un compte
+- Réinitialiser mot de passe (comptes locaux uniquement)
+
+**Pour utilisateurs LDAP :**
+- Synchronisation automatique depuis AD (pas de modification manuelle)
+
+### 12.3 Extraction de rapports
+
+**Outils → Rapports**
+
+**Rapports disponibles :**
+- Tickets par technicien
+- Tickets par catégorie
+- Temps de résolution moyen
+- SLA respectés / dépassés
+- Charge de travail par groupe
+
+**Export :** CSV, PDF
+
+---
+
+## 13. Intégration Traefik (Reverse Proxy)
+
+### 13.1 Configuration Traefik
+
+Traefik détecte automatiquement le conteneur GLPI grâce aux **labels Docker** définis dans `docker-compose.yml` (voir section 3.2).
+
+**Labels actifs :**
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.glpi.rule=Host(`glpi.iris.a3n.fr`)"
+  - "traefik.http.routers.glpi.entrypoints=web"
+  - "traefik.http.routers.glpi.tls=true"
+  - "traefik.http.services.glpi.loadbalancer.server.port=80"
+```
+
+**Effet :**
+- Toutes les requêtes vers `http://glpi.iris.a3n.fr:8080` sont routées vers le conteneur GLPI
+- HTTP activé automatiquement avec certificat auto-signé
+- Redirection HTTP → HTTP
+
+### 13.2 Headers de sécurité
+
+Traefik injecte automatiquement des headers sur toutes les réponses :
+
+```yaml
+# Dans traefik.yml (configuration globale)
+http:
+  middlewares:
+    security-headers:
+      headers:
+        sslRedirect: true
+        forceSTSHeader: true
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        frameDeny: true
+        browserXssFilter: true
+```
+
+**Effet :** Protection contre XSS, clickjacking, MIME sniffing.
+
+### 13.3 Vérification accès HTTP
+
+```bash
+# Depuis un poste client (VLAN 20 ou 30)
+curl -I http://glpi.iris.a3n.fr:8080
+
+# Résultat attendu :
+HTTP/2 200
+server: nginx
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 1; mode=block
+```
+
+---
+
+## 14. Sauvegarde et Restauration
+
+### 14.1 Sauvegarde manuelle
+
+**Sauvegarder la base de données :**
+```bash
+# Dump de la base MariaDB
+docker exec mariadb-glpi mysqldump -u glpi_user -pglpi_password_secure glpi_db > /opt/iris-services/glpi/backup/glpi_db_$(date +%Y%m%d).sql
+```
+
+**Sauvegarder les données GLPI :**
+```bash
+# Archive des fichiers (pièces jointes, plugins)
+tar -czf /opt/iris-services/glpi/backup/glpi_data_$(date +%Y%m%d).tar.gz /opt/iris-services/glpi/volumes/glpi-data/
+```
+
+### 14.2 Sauvegarde automatique (cron)
+
+```bash
+# Éditer crontab
+crontab -e
+
+# Ajouter ligne (sauvegarde quotidienne à 3h du matin)
+0 3 * * * /opt/iris-services/glpi/backup.sh
+```
+
+**Script `backup.sh` :**
+```bash
+#!/bin/bash
+BACKUP_DIR="/opt/iris-services/glpi/backup"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Dump base de données
+docker exec mariadb-glpi mysqldump -u glpi_user -pglpi_password_secure glpi_db > $BACKUP_DIR/glpi_db_$DATE.sql
+
+# Archive données
+tar -czf $BACKUP_DIR/glpi_data_$DATE.tar.gz /opt/iris-services/glpi/volumes/glpi-data/
+
+# Nettoyer sauvegardes > 30 jours
+find $BACKUP_DIR -type f -name "glpi_*" -mtime +30 -delete
+
+echo "Sauvegarde terminée : $DATE"
+```
+
+### 14.3 Restauration
+
+**Restaurer la base de données :**
+```bash
+docker exec -i mariadb-glpi mysql -u glpi_user -pglpi_password_secure glpi_db < /opt/iris-services/glpi/backup/glpi_db_20260320.sql
+```
+
+**Restaurer les données GLPI :**
+```bash
+tar -xzf /opt/iris-services/glpi/backup/glpi_data_20260320.tar.gz -C /
+```
+
+**Redémarrer les conteneurs :**
+```bash
+docker compose restart
+```
+
+---
+
+## 15. Tests de Validation
+
+### 15.1 Test authentification LDAP
+
+- [ ] Connexion avec compte AD (groupe Étudiants) → accès interface Self-Service
+- [ ] Connexion avec compte AD (groupe Enseignants) → accès interface Technicien
+- [ ] Connexion avec compte AD (groupe Admins) → accès interface Super-Admin
+- [ ] Vérification mapping profils (utilisateurs importés avec le bon profil)
+
+### 15.2 Test workflow complet
+
+- [ ] Création ticket par utilisateur Self-Service
+- [ ] Notification email reçue (utilisateur + techniciens)
+- [ ] Assignation automatique selon catégorie (règles métier)
+- [ ] Prise en charge par technicien
+- [ ] Ajout suivi → notification utilisateur
+- [ ] Résolution ticket → email validation utilisateur
+- [ ] Validation utilisateur → clôture automatique après 7 jours
+
+### 15.3 Test accès HTTP
+
+- [ ] Accès http://glpi.iris.a3n.fr:8080 depuis VLAN 20 → OK
+- [ ] Accès http://glpi.iris.a3n.fr:8080 depuis VLAN 30 → OK
+- [ ] Accès direct http://10.10.10.X:8080 depuis VLAN 20 → **Bloqué par firewall**
+- [ ] Certificat SSL accepté par poste client (GPO AD)
+
+### 15.4 Test catégories et N1/N2/N3
+
+- [ ] Ticket catégorie "Problème login" → routé vers Support N1
+- [ ] Ticket catégorie "Problème réseau" → routé vers Techniciens Réseau (N2)
+- [ ] Ticket catégorie "Sécurité" → routé vers Experts (N3)
+- [ ] Tickets urgence "Très haute" → escalade automatique N3
+
+---
+
+## 16. Conclusion
+
+GLPI est désormais opérationnel et constitue le **service principal de l'infrastructure RP-03**.
+
+**Ce qui a été mis en place :**
+- ✅ Système de helpdesk professionnel avec workflow N1/N2/N3
+- ✅ Authentification centralisée via Active Directory (LDAP)
+- ✅ Catégories de tickets adaptées au contexte IRIS Nice
+- ✅ Notifications automatiques (email)
+- ✅ Interfaces adaptées (Self-Service, Technicien, Admin)
+- ✅ Intégration Traefik (HTTP sécurisé)
+- ✅ Sauvegardes automatisées
+
+**Statistiques prévisionnelles :**
+- Temps moyen de résolution N1 : 2-4 heures
+- Temps moyen de résolution N2 : 24 heures
+- Temps moyen de résolution N3 : 48 heures
+- Taux de résolution au premier contact (N1) : 70%
+
+**Prochaines étapes :**
+- L7 — Guide utilisateur GLPI (pour former les étudiants et enseignants)
+- L9 — Tests complets du workflow (PV de recette)
+
+---
+
+**Auteur :** Louka Lavenir  
+**Date :** 20 mars 2026  
+**Version :** 1.0
